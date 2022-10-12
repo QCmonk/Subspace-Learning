@@ -11,12 +11,14 @@ import qfunk.generator as qog
 import qfunk.utility as qut
 from utility import *
 
-
+# bad josh
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 ###############################################################
 # whether to use advanced or random initialisation
 advanced_mode = False
+# network mode, is a pair of network <'single','deep'> and layer type <'linear', 'unitary'>
+network_mode = ['single', 'unitary']
 ###############################################################
 
 # ------------------------------------------------------------

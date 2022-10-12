@@ -475,7 +475,7 @@ class PerformanceCallBack(tf.keras.callbacks.Callback):
         self.performance_dict['loss'].append(logs['loss'])
 
         # end training if metric is reached
-        if np.mean(self.performance_dict['cosines'][-5:])>=0.84:
+        if np.mean(self.performance_dict['cosines'][-5:])>=1.0:
             self.model.stop_training = True
             # save info 
             np.save('cosine_{}.npy'.format(self.name), self.performance_dict['cosines'])
@@ -511,10 +511,6 @@ def train_many(num=100, advanced_mode=False, modes=6, photons=3, epochs=5):
         train = True
         # whether to save model
         save = True
-        # location and name of model save
-        modelfile_name = "testing_network_{}_{}".format(modes, photons)
-        # the seed to use for numpy random number generator
-        np.random.seed(1223334444)
         # optical dimension
         qdim = qop.fock_dim(modes, photons)
         # ------------------------------------------------------------
@@ -638,9 +634,9 @@ def train_many(num=100, advanced_mode=False, modes=6, photons=3, epochs=5):
                 # now assign these dilated values to this initial values of the complete unitary map
                 new_theta = np.zeros_like(dilated_layer.theta.numpy())
                 new_phi = np.zeros_like(dilated_layer.phi.numpy())
-                for i,info in enumerate(tlist):
-                    new_theta[i] = info[2]
-                    new_phi[i] = info[3]
+                for j,info in enumerate(tlist):
+                    new_theta[j] = info[2]
+                    new_phi[j] = info[3]
 
                 # assign initialisation values
                 dilated_layer.theta.assign(new_theta)
@@ -656,9 +652,6 @@ def train_many(num=100, advanced_mode=False, modes=6, photons=3, epochs=5):
                           validation_data=(test_input_states, test_output_states),
                           validation_steps=1,
                           callbacks=[PerformanceCallBack(name='advanced_{}'.format(i))])
-
-
-
 
         else:
             # train  model
@@ -685,13 +678,13 @@ def pretty_plot():
     """
 
     # get some data
-    advanced_data = np.load('performance_advanced.npy')
-    simple_data = np.load('cosine_simple.npy')
+    advanced_data = np.load('Archive/cosine_advanced_0.npy')[:1000]
+    simple_data = np.load('Archive/cosine_simple_1.npy')[:7000]
 
 
     plt.plot(simple_data, 'b-.')
     plt.plot(advanced_data, 'r--')
-    plt.axhline(y=0.84, color='k', linestyle='--', alpha=0.4)
+    plt.axhline(y=0.8, color='k', linestyle='--', alpha=0.4)
     plt.grid(True)
     plt.xlabel('Training Steps')
     plt.ylabel('Performance (%)')
@@ -701,11 +694,6 @@ def pretty_plot():
 
 
 
-
-
-
-
-
 if __name__ == '__main__':
-    train_many(advanced_mode=False, num=100, modes=6, photons=3, epochs=100)
-    #pretty_plot()
+    #train_many(advanced_mode=True, num=10, modes=6, photons=3, epochs=100)
+    pretty_plot()
