@@ -13,7 +13,7 @@ import qfunk.utility as qut
 
 
 
-def problem_data_gen(dim, num, partition=0.9):
+def unitary_map_data_gen(dim, num, partition=0.9):
     """
     Generates problem data for a complete unitary operator
     """
@@ -42,6 +42,64 @@ def problem_data_gen(dim, num, partition=0.9):
 
     return train_input_states, train_output_states, test_input_states, test_output_states
 
+
+def power_map_data_gen(dim, num, power=1/2, partition=0.9):
+    """
+    Generates problem data for a complete unitary operator
+    """
+
+    # generate a random linear operator
+    A = qog.random_unitary(dim)
+
+    # generate a bunch of random inputs
+    input_states = np.random.randn(num, dim) + 1j*np.random.randn(num, dim)
+
+    # normalise all of these
+    norms = 1/np.linalg.norm(input_states, ord=2, axis=1)   
+
+    # apply normalisation
+    input_states = np.einsum('i,ik->ik', norms, input_states)
+
+    # now apply unitary to get output states
+    output_states = np.einsum('ij, kj->ki', A, input_states)
+
+
+    # apply nonlinear function
+    output_states = np.tanh(output_states)
+
+    # partition data
+    partition_ind = int(partition*num)
+    train_input_states = input_states[:partition_ind,:]
+    train_output_states = output_states[:partition_ind,:]
+    test_input_states = input_states[partition_ind:,:]
+    test_output_states = output_states[partition_ind:,:]
+
+    return train_input_states, train_output_states, test_input_states, test_output_states
+
+
+
+def mnist_data_gen(dim):
+    """
+    Imports and formats the complete data set
+    """
+
+    # retrieve the dataset
+    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data(path='mnist.npz')
+
+    # downsample to appropriate size
+    x_train = tf.image.resize(x_train, (dim,)).numpy()
+    x_test = tf.image.resize(x_test, (dim,)).numpy()
+
+    # compute vector norms
+    train_norms = 1/np.linalg.norm(x_train, ord=2, axis=1)  
+    test_norms = 1/np.linalg.norm(x_test, ord=2, axis=1)  
+
+    # apply the norms
+    x_train = np.einsum('i, ik->ik', train_norms, x_train)
+    x_test = np.einsum('i, ik->ik', test_norms, x_test)
+
+    # return this data
+    return x_train, y_train, x_test, y_test
 
 
 def data_projection(A, modes, photons):
@@ -356,8 +414,8 @@ class ULayer(Layer):
         # define weight initialisers with very tight distribution - corresponds to an identity
         with tf.init_scope():
             diag_init = tf.initializers.RandomNormal(mean=0, stddev=np.pi)
-            theta_init = tf.initializers.RandomNormal(mean=np.pi, stddev=np.pi)
-            phi_init = tf.initializers.RandomNormal(mean=-np.pi, stddev=np.pi)
+            theta_init = tf.initializers.RandomNormal(mean=0, stddev=np.pi)
+            phi_init = tf.initializers.RandomNormal(mean=0, stddev=np.pi)
 
             # superclass method for variable construction, get_variable has trouble with model awareness
             self.diag = self.add_weight(name="diags",
@@ -378,32 +436,15 @@ class ULayer(Layer):
                                        initializer=phi_init,
                                        trainable=True)
 
+        # self.kernel = self.add_weight("kernel", shape=[int(input_shape[-1]),
+        #                                  self.output_dim], 
+        #                                  dtype=tf.float32, 
+        #                                  initializer=tf.initializers.RandomNormal(mean=0, stddev=0.1),
+        #                                  trainable=True)
+
 
         # construct single photon unitary
-        self.unitary = tf_clements_stitch(self.bms_spec, self.theta, self.phi, self.diag)
-
-        # # construct multiphoton unitary using memory hungry (but uber fast) method
-        # if self.photons > 1:
-        #     if self.full:
-        #         # preallocate on zero dimensional subspace
-        #         U = tf.linalg.LinearOperatorFullMatrix(tf.constant([[1.0]], dtype=tf.complex64))
-
-        #         for pnum in range(1,self.photons+1):
-        #             # use symmetric map to compute multi photon unitary
-        #             S = tf.constant(qop.symmetric_map(
-        #             self.modes, pnum), dtype=tf.complex64)
-        #             # map to product state then use symmetric isometry to reduce to isomorphic subspace
-        #             V = tf.matmul(S, tf.matmul(tf_multikron(self.unitary, pnum), tf.linalg.adjoint(S)))
-        #             U = tf.linalg.LinearOperatorBlockDiag([U, tf.linalg.LinearOperatorFullMatrix(V)])
-        #         # convert unit
-        #         self.unitary = tf.convert_to_tensor(U.to_dense())
-
-        #     else:
-        #         # use symmetric map to compute multi photon unitary
-        #         S = tf.constant(symmetric_map(
-        #             self.modes, self.photons), dtype=tf.complex64)
-        #         # map to product state then use symmetric isometry to reduce to isomorphic subspace
-        #         self.unitary = tf.matmul(S, tf.matmul(tf_multikron(self.unitary, self.photons), tf.linalg.adjoint(S)))
+        #self.unitary = tf_clements_stitch(self.bms_spec, self.theta, self.phi, self.diag)
 
         # call build method of super class
         super(ULayer, self).build(input_shape)
@@ -422,6 +463,7 @@ class ULayer(Layer):
         self.unitary = tf_clements_stitch(self.bms_spec, self.theta, self.phi, self.diag)
 
         # perform matrix calculation using fast einsum
+
         out = tf.einsum('ij,bj->bi', self.unitary, inputs, name="Einsum_left")
 
         return out
@@ -470,12 +512,12 @@ class PerformanceCallBack(tf.keras.callbacks.Callback):
         self.performance_dict['loss'] = []
 
     def on_train_batch_end(self, batch, logs=None):
-        # store log information
+        # store log information (TODO: This is very inefficient)
         self.performance_dict['cosines'].append(logs['cosine_similarity'])
         self.performance_dict['loss'].append(logs['loss'])
 
         # end training if metric is reached
-        if np.mean(self.performance_dict['cosines'][-5:])>=1.0:
+        if np.mean(self.performance_dict['cosines'][-5:])>=0.99:
             self.model.stop_training = True
             # save info 
             np.save('cosine_{}.npy'.format(self.name), self.performance_dict['cosines'])
@@ -667,24 +709,19 @@ def train_many(num=100, advanced_mode=False, modes=6, photons=3, epochs=5):
 
 
 
-
-
-
-
-
 def pretty_plot():
     """
     Plots data in a mildly pleasant fashion. 
     """
 
     # get some data
-    advanced_data = np.load('Archive/cosine_advanced_0.npy')[:1000]
-    simple_data = np.load('Archive/cosine_simple_1.npy')[:7000]
+    advanced_data = np.load('Archive/cosine_advanced.npy')[:]
+    simple_data = np.load('Archive/cosine_simple.npy')[:]
 
 
     plt.plot(simple_data, 'b-.')
     plt.plot(advanced_data, 'r--')
-    plt.axhline(y=0.8, color='k', linestyle='--', alpha=0.4)
+    plt.axhline(y=advanced_data[-1], color='k', linestyle='--', alpha=0.4)
     plt.grid(True)
     plt.xlabel('Training Steps')
     plt.ylabel('Performance (%)')
